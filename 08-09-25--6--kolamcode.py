@@ -1,0 +1,145 @@
+"""
+kolam.py
+Generate Kolan dotted designs (basic motifs) using matplotlib.
+Dependencies: numpy, matplotlib
+Run: python kolam.py
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def catmull_rom_spline(P, n_points=100, closed=False):
+    """
+    Compute Catmull-Rom spline points for points P (k x 2).
+    closed=True makes the spline wrap back to the start.
+    """
+    P = np.asarray(P, dtype=float)
+    if len(P) < 2:
+        return P
+    if closed:
+        P_ext = np.vstack([P, P[0], P[1]])
+    else:
+        P_ext = np.vstack([P[0], P, P[-1]])
+    curve = []
+    end = len(P_ext) - 3
+    for i in range(end):
+        p0, p1, p2, p3 = P_ext[i], P_ext[i+1], P_ext[i+2], P_ext[i+3]
+        t = np.linspace(0, 1, n_points)
+        t2 = t*t
+        t3 = t2*t
+        f1 = -0.5*t3 + t2 - 0.5*t
+        f2 =  1.5*t3 - 2.5*t2 + 1.0
+        f3 = -1.5*t3 + 2.0*t2 + 0.5*t
+        f4 =  0.5*t3 - 0.5*t2
+        x = p0[0]*f1 + p1[0]*f2 + p2[0]*f3 + p3[0]*f4
+        y = p0[1]*f1 + p1[1]*f2 + p2[1]*f3 + p3[1]*f4
+        curve.append(np.column_stack([x,y]))
+    return np.vstack(curve)
+
+def draw_grid(ax, rows, cols, spacing=1.0, dot_size=40, dot_color='k'):
+    xs = np.arange(cols)*spacing
+    ys = np.arange(rows)*spacing
+    X, Y = np.meshgrid(xs, ys)
+    ax.scatter(X.flatten(), Y.flatten(), s=dot_size, c=dot_color, zorder=3)
+    return X, Y
+
+def flower_motif(center, spacing, petals=6, radius_factor=0.45):
+    cx, cy = center
+    pts = []
+    # alternate radius to create petal shapes
+    for i in range(petals*2):
+        angle = (i / (petals*2)) * 2*np.pi
+        r = spacing*radius_factor * (1.0 if i%2==0 else 0.5)
+        pts.append([cx + r*np.cos(angle), cy + r*np.sin(angle)])
+    return pts
+
+def diamond_motif(center, spacing):
+    cx, cy = center
+    s = spacing*0.6
+    pts = [[cx, cy+s], [cx+s, cy], [cx, cy-s], [cx-s, cy]]
+    return pts
+
+def swirl_motif(center, spacing, turns=2, points=120):
+    cx, cy = center
+    t = np.linspace(0, 2*np.pi*turns, points)
+    r = np.linspace(spacing*0.1, spacing*0.6, points)
+    x = cx + r*np.cos(t)
+    y = cy + r*np.sin(t)
+    return np.column_stack([x,y])
+
+def kolam_design(rows=5, cols=5, spacing=1.0, design='flower', savefile=None,
+                 dot_size=60, linewidth=1.6, pick_pattern="evenodd"):
+    """
+    rows, cols: grid size (rows x cols)
+    spacing: distance between the dots
+    design: 'flower', 'diamond', 'swirl', or 'mixed'
+    savefile: filename to save PNG (None -> just show)
+    pick_pattern: which dots to decorate: 'evenodd' (i+j even), 'all', or 'checker'
+    """
+    fig, ax = plt.subplots(figsize=(6,6))
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    X, Y = draw_grid(ax, rows, cols, spacing=spacing, dot_size=dot_size)
+
+    centers = []
+    for i in range(rows):
+        for j in range(cols):
+            if pick_pattern == "all":
+                choose = True
+            elif pick_pattern == "checker":
+                choose = ((i % 2) == (j % 2))
+            else:
+                choose = ((i + j) % 2 == 0)
+            if choose:
+                centers.append((X[i,j], Y[i,j]))
+
+    for c in centers:
+        if design == 'flower':
+            pts = flower_motif(c, spacing, petals=6, radius_factor=0.5)
+            curve = catmull_rom_spline(pts, n_points=80, closed=True)
+            ax.plot(curve[:,0], curve[:,1], linewidth=linewidth)
+        elif design == 'diamond':
+            pts = diamond_motif(c, spacing)
+            curve = catmull_rom_spline(pts, n_points=80, closed=True)
+            ax.plot(curve[:,0], curve[:,1], linewidth=linewidth)
+        elif design == 'swirl':
+            curve = swirl_motif(c, spacing, turns=2, points=160)
+            curve_smooth = catmull_rom_spline(curve, n_points=40, closed=False)
+            ax.plot(curve_smooth[:,0], curve_smooth[:,1], linewidth=linewidth)
+        elif design == 'mixed':
+            # pick motif based on location to create variation
+            r = int((c[0]+c[1])//(spacing*2)) % 3
+            if r == 0:
+                pts = flower_motif(c, spacing, petals=6, radius_factor=0.45)
+                curve = catmull_rom_spline(pts, n_points=80, closed=True)
+                ax.plot(curve[:,0], curve[:,1], linewidth=linewidth)
+            elif r == 1:
+                pts = diamond_motif(c, spacing)
+                curve = catmull_rom_spline(pts, n_points=80, closed=True)
+                ax.plot(curve[:,0], curve[:,1], linewidth=linewidth)
+            else:
+                curve = swirl_motif(c, spacing, turns=1.2, points=100)
+                curve_smooth = catmull_rom_spline(curve, n_points=40, closed=False)
+                ax.plot(curve_smooth[:,0], curve_smooth[:,1], linewidth=linewidth)
+        else:
+            # default small loop
+            pts = flower_motif(c, spacing, petals=4, radius_factor=0.35)
+            curve = catmull_rom_spline(pts, n_points=80, closed=True)
+            ax.plot(curve[:,0], curve[:,1], linewidth=linewidth)
+
+    pad = spacing*0.6
+    ax.set_xlim(-pad, (cols-1)*spacing+pad)
+    ax.set_ylim(-pad, (rows-1)*spacing+pad)
+
+    if savefile:
+        plt.savefig(savefile, dpi=300, bbox_inches='tight')
+    plt.show()
+
+if __name__ == "__main__":
+    # Examples: tweak rows/cols/spacing/design/savefile
+    kolam_design(rows=5, cols=5, spacing=1.2, design='flower', pick_pattern='evenodd')
+    kolam_design(rows=6, cols=6, spacing=1.0, design='diamond', pick_pattern='checker')
+    kolam_design(rows=7, cols=7, spacing=0.9, design='swirl', pick_pattern='all')
+    # Save a PNG:
+    kolam_design(rows=9, cols=9, spacing=0.6, design='mixed', savefile='kolam_mixed.png')
